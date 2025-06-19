@@ -287,11 +287,13 @@ Compare fitted parameters and parameters used to generate baseline (i.e. model w
 ```{r}
 # fitted parameters
 optim_out$par
-# output parameters
+# parameters used for generating baseline
 params
 ```
 
 ### Compare output
+
+Compare output of model using `timeStep = 0.5` and fitted parameters (parameters from optim) vs parameter used for generating baseline
 
 ::: panel-tabset
 ## Parameters from optim
