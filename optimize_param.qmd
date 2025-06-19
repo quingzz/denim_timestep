@@ -1,35 +1,33 @@
 ---
 title: "Optimize parameter"
+toc: true
 ---
 
-```{r}
+```{r warning=FALSE}
 library(tidyverse)
 library(denim)
 ```
 
 ## Overview
 
-Due to being a discrete-time algorithm, denim output and performance depends on the time step used for the model. Said dependence is summarized as followed:
+Due to being a discrete-time algorithm, denim output and performance depend on the time step used in the model. This dependency is summarized as followed:
 
--   The larger time step used, the algorithm [runs faster]{.underline} but will [diverge from continuous time model output]{.underline}.
+-   Larger time steps lead to faster run time, but output tends to deviate from the corresponding continuous-time model
 
--   The smaller time step used, the algorithm [runs slower]{.underline} but [output will closely follow that of a continuous time model]{.underline}.
+-   Smaller time step yield more "accurate" output but at the cost of slower run time.
 
-There are 2 approaches to mitigate this trade-offs
+This trade-off can be mitigated in 2 ways
 
--   **Adjust parameters**: adjust parameters such that output using 1 time step match that from other smaller time step
+-   **Adjust parameters**: adjust [parameters]{.underline} such that output using larger time step aligns with output from smaller one.
 
-    -   If this is possible: for model fitting task, isn't it better to just use a larger time step (e.g. 0.5)? (since it will converge anyways, just with slightly different parameters compared to fitted parameters with finer timeSteps)
-
--   **Post-hoc adjustment**: adjust the output from 1 timeStep to match that from other timeStep
-
-    -   Can we meta-model the change in output as timeStep change? If possible, can said meta-model applied to different denim model structure?
+-   **Post-hoc adjustment**: adjust the [output]{.underline} to better align with smaller time step output.
 
 ## Set up
 
 ### Model structure
 
-Model 1
+::: panel-tabset
+## Model 1
 
 ```{r}
 denim_mod <- denim_dsl({
@@ -80,7 +78,7 @@ upper <- c(
 )
 ```
 
-Model 2
+## Model 2
 
 ```{r}
 denim_mod <- denim_dsl({
@@ -127,6 +125,7 @@ upper <- c(
   ir_shape = params$ir_shape + 2
 )
 ```
+:::
 
 ### Baseline
 
@@ -142,12 +141,15 @@ baseline <- sim(denim_mod,
     timeStep = timeStep, 
     simulationDuration = simulationDuration)
 
-plot(baseline, ylim = c( 0, 1e6))
+# plot(baseline, ylim = c( 0, 1000))
 ```
 
 ### Helpers
 
 ```{r}
+#| code-fold: true
+#| code-summary: "helper functions"
+
 # preprocess data 
 preprocess_data <- function(baseline, out, 
                             comps = c("S", "I", "R", "D"), 
@@ -187,10 +189,14 @@ preprocess_data <- function(baseline, out,
 
 # helper for computing accuracy
 # baseline is the output of baseline model (usually output when baseline = 0.001)
-compute_accuracy <- function(data){
+compute_accuracy <- function(data, error = "mae"){
+  if(error!= "mae" & error != "mse"){
+    stop("`error` must be either `mae` for Mean Absolute Error or `mse` for Mean Squared Error")
+  }
+  
   data %>% 
     mutate(
-      diff = (pop.y - pop.x)**2
+      diff = if(error == "mae"){abs(pop.y - pop.x)} else{(pop.y - pop.x)**2}
     ) %>% 
     summarize(
       mse = sum(diff, na.rm = TRUE)/n()
@@ -242,11 +248,15 @@ plot_output <- function(data){
 
 ### Fit model
 
+Try fitting model with `timeStep = 0.5` to output generated with `timeStep = 0.01`
+
 ```{r}
 newTimeStep <- 0.5
 ```
 
-```{r}
+```{r warning=FALSE}
+#| code-fold: true
+#| code-summary: "Code for fitting model"
 target_function <- function(par){
   par <- as.list(par)
   new_params <- modifyList(params, par)
@@ -260,7 +270,7 @@ target_function <- function(par){
   )
   
   preprocess_data(baseline, out = out, comps = comps) %>% 
-    compute_accuracy()
+    compute_accuracy(error = "mse")
 }
 
 optim_out <- optim(
@@ -272,6 +282,8 @@ optim_out <- optim(
 )
 ```
 
+Compare fitted parameters and parameters used to generate baseline (i.e. model with `timeStep = 0.01`)
+
 ```{r}
 # fitted parameters
 optim_out$par
@@ -281,7 +293,8 @@ params
 
 ### Compare output
 
-#### Parameters from optim
+::: panel-tabset
+## Parameters from optim
 
 ```{r}
 new_pars <- modifyList(params, as.list(optim_out$par))
@@ -302,24 +315,25 @@ preprocess_data(baseline, out = out, comps = comps) %>%
   compute_accuracy()
 ```
 
-#### Same parameters
+## Old parameters
 
 ```{r}
-out <- sim(denim_mod, 
+out_oldparams <- sim(denim_mod, 
   initialValues = initVals,
   parameters = params,
   timeStep = newTimeStep, 
   simulationDuration = simulationDuration)
 
-preprocess_data(baseline, out = out, comps = comps) %>% 
+preprocess_data(baseline, out = out_oldparams, comps = comps) %>% 
   plot_compare()
 
-preprocess_data(baseline, out = out, comps = comps) %>% 
+preprocess_data(baseline, out = out_oldparams, comps = comps) %>% 
   plot_output()
 
-preprocess_data(baseline, out = out, comps = comps) %>% 
+preprocess_data(baseline, out = out_oldparams, comps = comps) %>% 
   compute_accuracy()
 ```
+:::
 
 ### Discussion
 
@@ -331,12 +345,78 @@ Denim use cases could be categorized into 2 groups:
 
 -   **Model fitting:** If the task at hand is to fit the model to a dataset, it is better to use larger `timeStep` where run time is fast enough, but still small enough for a smooth output + convergence. Just be aware that the fitted parameters may varies slightly depending on the `timeStep` used.
 
--   **Simulation:** If users need to simulate a model with a set of parameters derived from a continuous time estimates, it is better to use small `timeStep` where issue of longer run time persists.
+-   **Simulation:** If users need to simulate a model with a set of parameters derived from a continuous time estimates, it is better to use small `timeStep` (where issue of longer run time persists).
 
 ## Adjust output
 
-TBD: More literature on
+### Correlation between error and timeStep
 
--   conversion between discrete-time and continuous-time system
+Plotting MAE shows that the divergence in output does linearly correlates with grow in `timeStep` but only within smaller range of `timeStep` (typically `[0-1]`) but gets unpredictable as `timeStep` becomes larger than that range
 
--   similarity transformation (?)
+```{r}
+#| code-fold: true
+#| code-summary: "Code for compute MSE at different timeStep"
+dt_acc <- data.frame(
+    dt = seq(0.05, 5, 0.05)
+  ) %>% 
+  mutate(
+    mae = map_dbl(dt, \(curr_dt){
+      
+      curr_out <- sim(
+        denim_mod,
+        initialValues = initVals,
+        parameters = params,
+        simulationDuration = simulationDuration,
+        timeStep = curr_dt
+      )
+      
+      preprocess_data(baseline, out = curr_out, comps = comps) %>% 
+        compute_accuracy()
+    })
+  )
+
+dt_acc %>% 
+  ggplot(
+    aes(
+      x = dt, y = mae
+    )
+  ) +
+  geom_point(color = "cornflowerblue", shape = 20) +
+  labs(
+    title = "Correlation between timeStep and error",
+    x = "timeStep",
+    y = "Mean Absolute Error"
+  )
+
+# ggsave("figures/dt_error.png", width = 8, height = 5, dpi = 300)
+```
+
+### Change in output
+
+Visualize difference between output using `timeStep = 0.01` and `timeStep = 0.5` using the same set of parameters
+
+```{r}
+#| code-fold: true
+#| code-summary: "Code for plotting"
+preprocess_data(baseline, out_oldparams, comps = comps) %>% 
+  mutate(
+    diff = pop.y - pop.x
+  ) %>% 
+  ggplot() +
+    geom_line(
+      aes(x = Time, y = diff),
+      color = "red"
+    ) +
+    geom_hline(
+      yintercept = 0,
+      linetype = "dashed"
+    ) +
+    facet_wrap(~ comp) +
+    labs(
+      title = "Difference between baseline and output",
+      x = "(Simulation) Time",
+      y = "Baseline - Output"
+    )
+
+# ggsave("figures/visualize_incorrectness.png", width = 8, height = 5, dpi = 300)
+```
