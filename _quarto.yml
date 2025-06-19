@@ -1,0 +1,9 @@
+project:
+  type: website
+  output-dir: docs
+  
+execute: 
+  echo: true
+
+editor: visual
+
