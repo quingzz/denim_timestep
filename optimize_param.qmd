@@ -313,6 +313,7 @@ preprocess_data(baseline, out = out, comps = comps) %>%
 preprocess_data(baseline, out = out, comps = comps) %>% 
   plot_output()
 
+# compute Mean Absolute Error
 preprocess_data(baseline, out = out, comps = comps) %>% 
   compute_accuracy()
 ```
